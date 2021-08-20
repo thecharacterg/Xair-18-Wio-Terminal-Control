@@ -1,4 +1,4 @@
-# Xair-18-Wio-Terminal-Control Version 2.5
+# Xair-18-Wio-Terminal-Control Version 2.9
 ![Image of Yaktocat](https://github.com/thecharacterg/Xair-18-Wio-Terminal-Control/blob/main/IMG_3219.jpg)
 
 This is code for Wio Terminal remote for Xair 18
