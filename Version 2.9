@@ -1,0 +1,410 @@
+// ***************************************************************
+// *           Behringer XR18 Wio Terminal Remote                *
+// *                   By Chris George                           *
+// ***************************************************************
+// * This code connects to WiFI and sends OSC commands to an     *
+// * Behringer XR18. You have to enter an IP address for the     *
+// * mixer for this demo to work. Original script by Vern        *
+// * Graner used an ESP32 board and leds to indicate buttons.    *
+// ***************************************************************
+// * Rev Info: V2.9 Made serial communications easier for the    *
+// *                ESP32 Bluetooth Keyboard add on to recieve   *
+// *                number commands to send keyboard commands to *
+// *                Connected computer. This Doesn't work on     *
+// *                MacOS Lower than Mojave. Working on a link   *
+// *                using a Raspberry Pi Zero w to Bridge        *
+// *                to Address this issue.                       *
+// * Rev Info: V2.6 Added serial communications for future       *
+// *                ESP32 Bluetooth Keyboard add on.             *
+// * Rev Info: V2.5 Clearing up code, making functions out of    *
+// *                collective commands. Now setting screen      *
+// *                orientation with controls. So to make        *
+// *                it easier cheange oState to flip screen.     *
+// * Rev Info: V2.3 Updated Indication chnages, and active       *
+// *                 fuctions. Rec* stands for Record and        *
+// *                 indicates when the function is being used.  *
+// * Rev Info: V2.0 Added Reaper Tranport Controls through       *
+// *                through Macro Keyboard presses. This will    *
+// *                now send commands to Stop recording, save    *
+// *                file and place the transport at the end      *
+// *                of the project. Also start recording when    *
+// *                it fades out background music. This is       *
+// *                very handy device for live recording of      *
+// *                performances. The key combinations that      *
+// *                are need to be programmed in reaper.         *
+// *                  1:Alt+Shift+P for recording start          *
+// *                  2:Alt+Shift+O to stop and save files       *
+// *                  moves shuttle to the end of the project    *
+// *                This is programmed for MacOS, you may        *
+// *                need to change these for another OS.         *
+// * Rev Info: V1.7 New user interface drawn up and notation     *
+// *                for button actions. "Last Button", lets      *
+// *                user know what is the last action taken,     *
+// *                Starts with MAIN, as mains on my board       *
+// *                are muted at start up. Working on macros     *
+// *                for Reaper to add more functions.            *
+// * Rev Info: V1.5 Added Nico Hood's HID Library to add media   *
+// *                player controls to the device while it is    *
+// *                is connected to a commputer by usb port.     *
+// * Rev Info: V1.0 Rewritten Code to WIO Terminal board and     *
+// *                changed functons for needed automations.     *
+// *                These are automations like fade in/out       *
+// *                back ground music and mute groups.           *
+// *                This may be expanded in time.                *
+// ***************************************************************
+
+#include "HID-Project.h"
+#include <rpcWiFi.h>            // For WiFi
+#include <WiFiUdp.h>          // For WiFi
+#include "TFT_eSPI.h" //TFT LCD library
+#include <OSCMessage.h>       // For OSC support
+TFT_eSPI tft; //Initializing TFT LCD library
+TFT_eSprite spr = TFT_eSprite(&tft); //Initializing the buffer
+//char ctrlKey = KEY_LEFT_GUI;
+const char* buttonCommand[]={
+  "/config/mute/1",          // This controls Mute Group 1
+  "/config/mute/2",          // This controls Mute Group 2
+  "/rtn/aux/mix/on",         // This controls Aux Mute
+  "/rtn/aux/mix/fader",    // This Command is for Fader of Aux on Mains
+  "/lr/mix/on",
+};
+int fadeLimit=50;
+int fadeSet=33;
+const char* nlabel[]={ 
+  "TALK","SETB","MAIN","AXUP","AXDN","NEXT","PREV","PLAY","REC*",       
+};
+const char* fadeCommand[]={
+  "-100","-97","-95","-93","-91", // This is fader control values
+  "-89","-87","-85","-83","-81",  // that can be used for any fader     
+  "-79","-77","-75","-73","-71",  // automation.       
+  "-69","-67","-65","-63","-61",
+  "-59","-57","-55","-53","-51",
+  "-49","-47","-45","-43","-41",
+  "-39","-37","-35","-33","-31",
+  "-29","-27","-25","-23","-21",
+  "-19","-17","-15","-13","-11",
+  "-9","-7","-5","-3","-1",
+}; 
+char verS[] = "V2.9";
+// Define program Variables
+int buttonState[] = {0,0,1,0};   // current state of the button
+int lastState[] = {0,0,1,0};     // previous state of the button
+int blxy[]= {8,210,16,216,62,30,0};
+int blxy2[]= {blxy[0],blxy[1]+35,blxy[2],blxy[3]+35,62,30,1};
+int blxy3[]= {blxy[0],blxy[1]+70,blxy[2],blxy[3]+70,62,30,2};
+// WiFi setup
+char ssid[] = "mmm";           // your network SSID (name)
+char pass[] = "mmm";    // your network password
+int LButton = 2;
+WiFiUDP Udp;                                // A UDP instance to let us send and receive packets over UDP
+const IPAddress outIp(192,168,18,79);       // IP of the XR18 in Comma Separated Octets, NOT dots!
+const unsigned int outPort = 10024;         // remote port to receive OSC X-AIR is 10024, X32 is 10023
+const unsigned int localPort = 8888;        // local port to listen for OSC packets (actually not used for sending)
+int oState = 2;// Changes orientation of the screen with controls 0 puts the 5way switch to the top.
+
+void setup() {
+   pinMode(WIO_KEY_A, INPUT);
+   pinMode(WIO_KEY_B, INPUT);
+   pinMode(WIO_KEY_C, INPUT);
+   pinMode(WIO_5S_UP, INPUT);
+   pinMode(WIO_5S_DOWN, INPUT);
+   pinMode(WIO_5S_LEFT, INPUT);
+   pinMode(WIO_5S_RIGHT, INPUT);
+   pinMode(WIO_5S_PRESS, INPUT_PULLUP);
+   tft.begin(); //LCD initialization
+   tft.setRotation(oState); //Setting LCD rotation
+   Serial.begin(115200);
+   Serial1.begin(115200);
+   Serial.println();
+   Serial.println();
+   Serial.print("Connecting to ");     
+   Serial.println(ssid);               
+   WiFi.begin(ssid, pass);
+
+    //conectWiFi();// Comment out to debug controls
+    Serial.println("");
+
+    Serial.println("WiFi connected");
+
+    Serial.println("IP: ");
+    Serial.println(WiFi.localIP());
+    Serial.println("Starting UDP");
+    Udp.begin(localPort);
+    Serial.print("Local port: ");
+    Serial.println(localPort);
+    Serial.println("");
+    lcdStart();//draws menu after connection starts
+    Keyboard.begin(); //start keyboard communication
+}
+
+void loop() { // Main Loop
+  orState(oState);
+}
+void orState(int oS){
+  if (oS==2){
+  if (digitalRead(WIO_KEY_C) == LOW){ //Detecting the button press
+     talkMute();
+  }
+  else if (digitalRead(WIO_KEY_A) == LOW){ //Detecting the button press
+    mainMute();
+  }
+  else if(digitalRead(WIO_KEY_B) == LOW){
+    bSet();
+  } else if(digitalRead(WIO_5S_LEFT) == LOW){
+    auxUP();
+  } else if(digitalRead(WIO_5S_RIGHT) == LOW){
+    auxDn();
+  }else if(digitalRead(WIO_5S_DOWN) == LOW){
+    pTrack();
+  } else if(digitalRead(WIO_5S_UP) == LOW){
+    nTrack();
+  } else if(digitalRead(WIO_5S_PRESS) == LOW){
+    tPlay();
+  }
+  } else if (oS==0){
+    if (digitalRead(WIO_KEY_A) == LOW){ //Detecting the button press
+     talkMute();
+  }
+  else if (digitalRead(WIO_KEY_C) == LOW){ //Detecting the button press
+    mainMute();
+  }
+  else if(digitalRead(WIO_KEY_B) == LOW){
+    bSet();
+  } else if(digitalRead(WIO_5S_RIGHT) == LOW){
+    auxUP();
+  } else if(digitalRead(WIO_5S_LEFT) == LOW){
+    auxDn();
+  }else if(digitalRead(WIO_5S_UP) == LOW){
+    pTrack();
+  } else if(digitalRead(WIO_5S_DOWN) == LOW){
+    nTrack();
+  } else if(digitalRead(WIO_5S_PRESS) == LOW){
+    tPlay();
+  }
+  }
+}
+void enButtons(){
+  if (lastState[2]==1){
+    buttonPushe(blxy3[0],blxy3[1],blxy3[4],blxy3[5],blxy3[2],blxy3[3],blxy3[6]);
+  }
+  if (lastState[1]==1){
+    buttonPushe(blxy2[0],blxy2[1],blxy2[4],blxy2[5],blxy2[2],blxy2[3],blxy2[6]);
+  } else {
+    buttonPushe(14,140,62,30,22,146,8);
+  }
+  if (lastState[0]==1){
+    buttonPushe(blxy[0],blxy[1],blxy[4],blxy[5],blxy[2],blxy[3],blxy[6]);
+  }
+  if (lastState[3]==1){
+    buttonPushe(89,100,62,30,97,106,7);
+  }
+}
+void ccommand(int cr,int ct){
+  if (ct==0){
+  OSCMessage msg(buttonCommand[cr]);
+         msg.add("ON");
+         Udp.beginPacket(outIp, outPort);
+         msg.send(Udp);
+         Udp.endPacket();
+         msg.empty();
+  } else if (ct==1){
+    OSCMessage msg(buttonCommand[cr]);
+         msg.add("OFF");
+         Udp.beginPacket(outIp, outPort);
+         msg.send(Udp);
+         Udp.endPacket();
+         msg.empty();
+  }
+}
+
+void fcommand(int cr,int ct){
+  OSCMessage msg(buttonCommand[cr]);
+         msg.add(fadeCommand[ct]);
+         Udp.beginPacket(outIp, outPort);
+         msg.send(Udp);
+         Udp.endPacket();
+         msg.empty();
+}
+
+void lcdStart(){
+  tft.fillRect(0,0,240,320,TFT_BLACK);
+  tft.fillRoundRect(1,2,238,43,8,TFT_CYAN);
+  tft.fillRoundRect(3,4,234,39,8,TFT_BLUE); 
+  tft.drawRoundRect(4,5,232,37,8,TFT_CYAN);//Drawing rectangle with blue fill
+  tft.setTextSize(3); //Setting text size 
+  tft.setTextColor(TFT_WHITE); //Setting text color //Drawing text string
+  tft.drawString("Connected",43,12);
+  tft.setTextSize(2);
+  tft.drawString(fadeCommand[fadeSet],13,180);
+  tft.drawString(verS,185,60);
+  tft.drawRoundRect(5,176,230,23,12,TFT_CYAN);
+  tft.drawRoundRect(2,55,236,260,10,TFT_CYAN);
+  tft.drawString(" AUX Fader Set@",48,180);
+  buttonNpush(14,140,62,30,22,146,8);
+  buttonNpush(89,100,62,30,97,106,7);
+  buttonNpush(89,60,62,30,97,66,3);
+  buttonNpush(89,140,62,30,97,146,4);
+  buttonNpush(164,100,62,30,172,106,5);
+  buttonNpush(13,100,62,30,21,106,6);
+  buttonNpush(blxy[0],blxy[1],blxy[4],blxy[5],blxy[2],blxy[3],blxy[6]);
+  buttonNpush(blxy2[0],blxy2[1],blxy2[4],blxy2[5],blxy2[2],blxy2[3],blxy2[6]);
+  buttonNpush(blxy3[0],blxy3[1],blxy3[4],blxy3[5],blxy3[2],blxy3[3],blxy3[6]);
+  tft.setTextSize(2);
+  tft.setTextColor(TFT_CYAN);//Fill circle with red color
+  tft.drawString("MG 1+ AUX u2",81,217);
+  tft.drawString("MG 2+ AUX",81,252);
+  tft.drawString("MAINS MUTE",81,287);
+  tft.drawRoundRect(76,212,154,94,4,TFT_CYAN);
+  tft.drawRoundRect(74,210,158,98,4,TFT_CYAN);
+  for (int i=0;i<4;i++){
+    buttonState[i]=lastState[i];
+  }
+  enButtons();
+}
+void buttonPushe(int xt,int yt,int wid,int hit,int ty,int tx,int bw){
+    tft.drawRoundRect(xt-2, yt-2, wid+4, hit+4, 5,TFT_CYAN);
+    tft.fillRoundRect(xt,yt,wid,hit, 5,TFT_CYAN);
+    tft.fillRoundRect(xt+1,yt+1, wid-2, hit-2, 5,TFT_RED);
+    tft.setTextSize(2);
+    tft.setTextColor(TFT_CYAN);//Fill circle with red color
+    tft.drawString(nlabel[bw],ty,tx);
+}
+void buttonNpush(int xt,int yt,int wid,int hit,int ty,int tx,int bw){
+  tft.setTextSize(2);
+  tft.setTextColor(TFT_BLACK);
+  tft.fillRoundRect(xt,yt,wid,hit, 5,TFT_CYAN);
+  tft.fillRoundRect(xt+1,yt+1,wid-2,hit-2, 5,TFT_BLUE); //Drawing circle with red outline
+  tft.drawString(nlabel[bw],ty,tx);
+}
+void bSet(){
+  Serial1.println("r");
+  if (buttonState[1]==0){
+      buttonPushe(blxy2[0],blxy2[1],blxy2[4],blxy2[5],blxy2[2],blxy2[3],blxy2[6]);
+      Keyboard.press(KEY_LEFT_ALT);
+      Keyboard.press(KEY_LEFT_SHIFT);
+    Keyboard.press('O');
+    delay(100);
+    Keyboard.releaseAll();
+    Keyboard.write(MEDIA_PLAY_PAUSE); 
+    Serial1.println(1);
+    ccommand(1,0);
+    ccommand(2,0);
+    for (int d=0;d<fadeSet;d++){
+      fcommand(3,d);
+      delay(100);
+    }
+    lastState[1]=1;
+    lastState[3]=1;
+    }else if (buttonState[1]==1){
+      buttonNpush(blxy2[0],blxy2[1],blxy2[4],blxy2[5],blxy2[2],blxy2[3],blxy2[6]);
+      if (buttonState[0]==1){
+        ccommand(0,1);
+        fadeSet=fadeSet-2;
+      }
+    ccommand(1,1);
+    for (int d=fadeSet;d>0;d--){
+      fcommand(3,d);
+      delay(100);
+    }
+    ccommand(2,1);
+    Keyboard.write(MEDIA_PLAY_PAUSE); 
+    Keyboard.write(MEDIA_NEXT); 
+    Serial1.println(1);
+    Serial1.println(3Ø∏Ø∏Ø);
+    delay(100);
+    Keyboard.press(KEY_LEFT_ALT);
+    Keyboard.press(KEY_LEFT_SHIFT);
+    Keyboard.press('P');
+    delay(100);
+    Keyboard.releaseAll();
+    lastState[0]=0;
+    lastState[1]=0;
+    lastState[3]=0;
+    }
+    delay(100);
+    lcdStart();
+}
+void mainMute(){
+  buttonPushe(blxy3[0],blxy3[1],blxy3[4],blxy3[5],blxy3[2],blxy3[3],blxy3[6]);
+    if (buttonState[2]==0){
+    ccommand(4,0);
+    lastState[2]=1;
+    }else if (buttonState[2]==1){
+    ccommand(4,1);
+    lastState[2]=0;
+    }
+    delay(400);
+    lcdStart();
+}
+void talkMute(){
+    buttonPushe(blxy[0],blxy[1],blxy[4],blxy[5],blxy[2],blxy[3],blxy[6]);
+    if (buttonState[0]==0){
+    ccommand(0,0);
+    fadeSet=fadeSet+2;
+    fcommand(3,fadeSet);
+    lastState[0]=1;
+    }else if (buttonState[0]==1){
+    ccommand(0,1);
+     fadeSet=fadeSet-2;
+    fcommand(3,fadeSet);
+    lastState[0]=0;
+    }
+    delay(400);
+    lcdStart();
+}
+void auxUP(){
+    buttonPushe(89,60,62,30,97,66,3);
+    fadeSet++;
+    fcommand(3,fadeSet);
+    delay(300);
+    lcdStart();
+}
+void auxDn(){
+  buttonPushe(89,140,62,30,97,146,4);
+    fadeSet--;
+    fcommand(3,fadeSet);
+    delay(300);
+    lcdStart();
+}
+void pTrack(){
+    buttonPushe(13,100,62,30,21,106,6);
+    Keyboard.write(MEDIA_PREVIOUS);
+    Serial1.println(2);
+    delay(300);
+    lcdStart();
+}
+void nTrack(){
+    buttonPushe(164,100,62,30,172,106,5);
+    Keyboard.write(MEDIA_NEXT);
+    Serial1.println(3); 
+    delay(300);
+    lcdStart();
+}
+void tPlay(){
+  if (buttonState[3]==0){
+    buttonPushe(89,100,62,30,97,106,7);
+    lastState[3]=1;
+     } else if(buttonState[3]==1){
+    buttonNpush(89,100,62,30,97,106,7);
+    lastState[3]=0;
+    }
+    Keyboard.write(MEDIA_PLAY_PAUSE);
+    Serial1.println(1);
+    delay(300);
+    lcdStart();
+}
+void conectWiFi(){
+  while (WiFi.status() != WL_CONNECTED) {
+        delay(1000);
+        tft.fillRect(0,0,240,320,TFT_BLACK);
+  tft.fillRoundRect(1,2,238,43,8,TFT_CYAN);
+  tft.fillRoundRect(3,4,234,39,8,TFT_BLUE); 
+  tft.drawRoundRect(4,5,232,37,8,TFT_CYAN);//Drawing rectangle with blue fill
+  tft.setTextSize(3); //Setting text size 
+  tft.setTextColor(TFT_WHITE);
+  tft.drawString("Connecting..",15,12);
+  tft.setTextSize(2);
+  tft.drawString("Please Wait..",35,62);
+        Serial.print(".");
+    }
+}
