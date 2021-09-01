@@ -1,5 +1,5 @@
 # Xair-18-Wio-Terminal-Control Version 2.95
-![Image of Yaktocat](https://github.com/thecharacterg/Xair-18-Wio-Terminal-Control/blob/main/70BF4BE0-1F87-44F6-BAC0-F32D6AD6B8F1.jpeg)
+![Image of Yaktocat](https://github.com/thecharacterg/Xair-18-Wio-Terminal-Control/blob/main/303.jpg)
 
 This is code for Wio Terminal remote for Xair 18
 Using Arduino IDE for uploading to the board.
