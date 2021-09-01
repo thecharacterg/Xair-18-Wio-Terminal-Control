@@ -6,6 +6,6 @@ Using Arduino IDE for uploading to the board.
 Please be fair in the use, and remember to denote those who have built this work for you.
 Newest version addes Macros programmed to work with Reaper or other recording software.
 # Currently, this is WiFi Connected to the Mixer and USB/Bluetooth to recording computers using Windows, Linux, and Mojave MacOs*.
-Working on ESPNow Keyboard link for USB Compatable computers that won't except ESP32 Bluetooth link.
-
  *Denotes I have not tested this yet personally, but all documentation says that MacOs Mojave Bluetooth stack excepts ESP32 HID devices.
+# ESPNOW Master/SLAVE Keyboard Device, No Questions Wireless HID control of music/recording computer on Xair18
+Diagrams will be provided soon, of all devices, Next Level of this project will be a while but will make this fairly interesting.
