@@ -1,0 +1,44 @@
+//*ESPNow Slave Device to serial Send to Atmega32u4
+//Written By Christopher George
+
+#include <esp_now.h>
+#include <WiFi.h>
+#define RXD2 16
+#define TXD2 17
+//#include "HID-Project.h"
+int kSend=0;
+typedef struct struct_message {
+    int integer;
+} struct_message;
+
+
+struct_message message;
+
+void data_receive(const uint8_t * mac, const uint8_t *incomingData, int len) {
+  memcpy(&message, incomingData, sizeof(message));
+  Serial.print("Bytes received: ");
+  Serial.print(len);
+  Serial.print(" Int: ");
+  Serial.println(message.integer);
+  Serial2.println(message.integer);
+  //kSend=message.integer;
+  //Serial.print("kSend: ");
+  //Serial.println(kSend);
+}
+ 
+void setup() {
+  Serial.begin(115200);
+  Serial2.begin(115200, SERIAL_8N1, RXD2, TXD2);
+  WiFi.mode(WIFI_STA);
+
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Error initializing ESP-NOW");
+    return;
+  }
+  
+  esp_now_register_recv_cb(data_receive);
+}
+ 
+void loop() {
+
+}
