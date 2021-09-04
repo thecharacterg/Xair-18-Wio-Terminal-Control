@@ -1,0 +1,85 @@
+#include <esp_now.h>
+#include <WiFi.h>
+#define RXD2 16
+#define TXD2 17
+uint8_t broadcastAddress[] = {0xff, 0xff, 0xff, 0x44, 0x44, 0x44};// MAC address of other device
+int kSend=0;
+typedef struct struct_message {
+    int integer;
+} struct_message;
+
+
+struct_message message;
+struct_message recieved;
+
+void data_receive(const uint8_t * mac, const uint8_t *incomingData, int len) {
+  memcpy(&recieved, incomingData, sizeof(recieved));
+  Serial.print("r:");
+  Serial.print(len);
+  Serial.print(":");
+  Serial.println(recieved.integer);
+  Serial2.println(recieved.integer);
+}
+void data_sent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+  Serial.print("t:");
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "1" : "0");
+}
+ 
+void setup() {
+  Serial.begin(115200);
+  Serial2.begin(115200, SERIAL_8N1, RXD2, TXD2);
+  WiFi.mode(WIFI_STA);
+
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("e:0");
+    return;
+  }
+  esp_now_register_send_cb(data_sent);
+  esp_now_register_recv_cb(data_receive);
+  esp_now_peer_info_t peerInfo;
+  memcpy(peerInfo.peer_addr, broadcastAddress, 6);
+  peerInfo.channel = 0;  
+  peerInfo.encrypt = false;     
+  if (esp_now_add_peer(&peerInfo) != ESP_OK){
+    Serial.println("p:0");
+    return;
+  }
+}
+void messageSend(int nbm){
+    message.integer = nbm;
+    Serial.print("m:");
+    Serial.print(message.integer);
+    Serial.print(":");
+    Serial2.println(message.integer);
+    esp_err_t outcome = esp_now_send(broadcastAddress, (uint8_t *) &message, sizeof(message)); 
+     if (outcome == ESP_OK) {
+        Serial.println("1");
+    }else {
+    Serial.println("0");
+  }
+}
+void loop() {
+if (Serial.available()>0){
+    int state = Serial.parseInt();
+    if (state == 1){
+        messageSend(1);
+    } else if (state==2){
+      messageSend(2);
+    } else if (state==3){
+       messageSend(3);
+    } else if (state==4){
+       messageSend(4);
+    }  else if (state==5){
+       messageSend(5);
+    }  else if (state==6){
+       messageSend(6);
+    }  else if (state==7){
+       messageSend(7);
+    }  else if (state==8){
+       messageSend(8);
+    }  else if (state==9){
+       messageSend(9);
+    } 
+  delay(1000);
+  }
+}
